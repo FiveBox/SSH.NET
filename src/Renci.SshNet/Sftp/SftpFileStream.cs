@@ -237,6 +237,8 @@ namespace Renci.SshNet.Sftp
                     break;
             }
 
+            bool isNew = false;
+
             switch (mode)
             {
                 case FileMode.Append:
@@ -246,6 +248,7 @@ namespace Renci.SshNet.Sftp
                     _handle = _session.RequestOpen(path, flags | Flags.Truncate, true);
                     if (_handle == null)
                     {
+                        isNew = true;
                         flags |= Flags.CreateNew;
                     }
                     else
@@ -254,11 +257,23 @@ namespace Renci.SshNet.Sftp
                     }
                     break;
                 case FileMode.CreateNew:
+                    isNew = true;
                     flags |= Flags.CreateNew;
                     break;
                 case FileMode.Open:
                     break;
                 case FileMode.OpenOrCreate:
+                    // check if the file already exists, so we know if we need to FSTAT
+                    // after opening the file
+                    var checkExistHandle = _session.RequestOpen(path, flags | Flags.Read, true);
+                    if (checkExistHandle == null)
+                    {
+                        isNew = true;
+                    }
+                    else
+                    {
+                        _session.RequestClose(checkExistHandle);
+                    }
                     flags |= Flags.CreateNewOrOpen;
                     break;
                 case FileMode.Truncate:
@@ -269,7 +284,12 @@ namespace Renci.SshNet.Sftp
             if (_handle == null)
                 _handle = _session.RequestOpen(path, flags);
 
-            _attributes = _session.RequestFStat(_handle);
+            // only FSTAT if we are opening an existing file.
+            // for new files, we will not fstat as it causes problems with some server implementations
+            if (!isNew)
+            {
+                _attributes = _session.RequestFStat(_handle);
+            }
 
             // instead of using the specified buffer size as is, we use it to calculate a buffer size
             // that ensures we always receive or send the max. number of bytes in a single SSH_FXP_READ
